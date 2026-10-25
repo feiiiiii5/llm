@@ -101,3 +101,55 @@ def test_chat_template_loads_tools_into_logs(logs_db, templates_path):
         )
     )
     assert [r["name"] for r in rows] == ["llm_time", "llm_version"]
+
+
+@pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
+def test_chat_template_options_are_applied(mock_model, logs_db, templates_path):
+    (templates_path / "with-options.yaml").write_text(
+        "system: hi\noptions:\n  max_tokens: 5\n", "utf-8"
+    )
+
+    runner = CliRunner()
+    mock_model.enqueue(["ok"])
+    result = runner.invoke(
+        llm.cli.cli,
+        ["chat", "-m", "mock", "-t", "with-options"],
+        input="hello\nquit\n",
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    # The template's options: block reaches the model like llm prompt -t does
+    assert mock_model.history[0][0].options.max_tokens == 5
+
+
+@pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
+def test_chat_template_system_fragment_is_applied_to_first_turn(
+    tmpdir, mock_model, logs_db, templates_path
+):
+    sys_frag_path = str(tmpdir / "sys.txt")
+    with open(sys_frag_path, "w", encoding="utf-8") as fp:
+        fp.write("System fragment content")
+
+    (templates_path / "with-sys-frag.yaml").write_text(
+        f"system_fragments:\n  - {sys_frag_path}\n", "utf-8"
+    )
+
+    runner = CliRunner()
+    mock_model.enqueue(["first"])
+    mock_model.enqueue(["second"])
+    result = runner.invoke(
+        llm.cli.cli,
+        ["chat", "-m", "mock", "-t", "with-sys-frag"],
+        input="Hi\nHi two\nquit\n",
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+    # The template's system_fragments: block attaches to the first turn only,
+    # exactly like --system-fragment does
+    turns = list(logs_db["turns"].rows_where(order_by="id"))
+    assert len(turns) == 2
+    sys_frags = list(logs_db["turn_fragments"].rows_where("kind = 'system'"))
+    assert len(sys_frags) == 1
+    assert sys_frags[0]["turn_id"] == turns[0]["id"]

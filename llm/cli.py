@@ -1291,6 +1291,12 @@ def chat(
         if model_id is None and template_obj.model:
             model_id = template_obj.model
         tools, python_tools = _merge_template_tools(template_obj, tools, python_tools)
+        if template_obj.options:
+            options = _merge_template_options(template_obj, options)
+        if template_obj.fragments:
+            fragments = (*template_obj.fragments, *fragments)
+        if template_obj.system_fragments:
+            system_fragments = (*template_obj.system_fragments, *system_fragments)
 
     # Figure out which model we are using
     if model_id is None:
